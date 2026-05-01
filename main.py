@@ -11,16 +11,16 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise ValueError("No DISCORD_TOKEN found in environment variables")
 
-PREFIX = "K!"   # Changed from R! to K!
+PREFIX = "K!"
 
-# yt-dlp options – updated to avoid deprecation warnings
+# Updated yt-dlp options with cookies and user-agent
 YDL_OPTIONS = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
     'extract_flat': False,
-    'cookiefile': None,          # Avoid cookie issues
+    'cookiefile': 'cookies.txt',            # <-- YouTube cookies file
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -110,7 +110,7 @@ async def play_next(ctx, error=None):
             await ctx.send("❌ Failed to load the audio stream. Skipping...")
             await play_next(ctx)
     else:
-        await asyncio.sleep(300)  # 5 minutes idle
+        await asyncio.sleep(300)  # 5 minutes idle disconnect
         if voice_client and not voice_client.is_playing():
             await voice_client.disconnect()
             if guild_id in queues:
@@ -184,7 +184,7 @@ async def pause(ctx):
     voice_client = ctx.voice_client
     if voice_client and voice_client.is_playing():
         voice_client.pause()
-        await ctx.send("⏸ Paused. Use `K!resume` to continue.")  # Fixed prefix
+        await ctx.send("⏸ Paused. Use `K!resume` to continue.")
     else:
         await ctx.send("❌ Nothing is playing right now.")
 
@@ -264,7 +264,7 @@ async def leave(ctx):
     else:
         await ctx.send("❌ I'm not in a voice channel.")
 
-@bot.command(name='join')   # Extra command to manually join voice
+@bot.command(name='join')
 async def join(ctx):
     if ctx.author.voice:
         await ctx.author.voice.channel.connect()
