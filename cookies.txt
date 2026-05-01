@@ -1,0 +1,5 @@
+# At the top of main.py, after importing os:
+cookie_data = os.getenv("YOUTUBE_COOKIES")
+if cookie_data:
+    with open("cookies.txt", "w") as f:
+        f.write(cookie_data)
