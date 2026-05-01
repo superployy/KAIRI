@@ -16,6 +16,7 @@ PREFIX = "K!"
 COOKIES_FILE = "/app/cookies.txt"
 
 # yt-dlp options
+# ios/android clients bypass YouTube's JS challenge — no Node.js runtime needed
 YDL_OPTIONS = {
     'format': 'bestaudio/best',
     'noplaylist': True,
@@ -25,11 +26,11 @@ YDL_OPTIONS = {
     'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
     'extractor_args': {
         'youtube': {
-            'player_client': ['web'],
+            'player_client': ['ios', 'android'],
         }
     },
     'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)'
     }
 }
 
