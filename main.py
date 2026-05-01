@@ -13,14 +13,13 @@ if not TOKEN:
 
 PREFIX = "K!"
 
-# Updated yt-dlp options with cookies and user-agent
+# yt-dlp options – no cookie file, just user-agent
 YDL_OPTIONS = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
     'extract_flat': False,
-    'cookiefile': 'cookies.txt',            # <-- YouTube cookies file
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
