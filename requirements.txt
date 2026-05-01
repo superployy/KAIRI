@@ -1,3 +1,3 @@
 discord.py>=2.3.0
 yt-dlp>=2024.12.0
-pynacl>=1.5.0    # <-- must have
+pynacl>=1.5.0
