@@ -1,12 +1,8 @@
-FROM python:3.11-slim
+[phases.setup]
+nixPkgs = ["ffmpeg"]
 
-RUN apt update && apt install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
 
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY bot.py .
-
-CMD ["python", "bot.py"]
+[start]
+cmd = "python bot.py"
