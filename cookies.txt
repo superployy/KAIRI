@@ -1,5 +1,11 @@
-# At the top of main.py, after importing os:
-cookie_data = os.getenv("YOUTUBE_COOKIES")
-if cookie_data:
-    with open("cookies.txt", "w") as f:
-        f.write(cookie_data)
+YDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'quiet': True,
+    'default_search': 'ytsearch',
+    'extract_flat': False,
+    # 'cookiefile': 'cookies.txt',   # <-- temporarily disable
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+}
