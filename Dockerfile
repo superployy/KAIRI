@@ -16,10 +16,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy cookies file — export from your browser while logged into YouTube
-# If it doesn't exist, the bot will still run but YouTube may block requests
-COPY cookies.txt .
-
 COPY main.py .
+
+# cookies.txt is optional but strongly recommended to avoid YouTube bot detection.
+# To use: export cookies from Chrome/Firefox while logged into YouTube using the
+# "Get cookies.txt LOCALLY" extension, save as cookies.txt in your repo root,
+# then uncomment the line below and redeploy.
+COPY cookies.txt .
 
 CMD ["python", "main.py"]
