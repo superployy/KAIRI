@@ -15,24 +15,33 @@ PREFIX = "K!"
 
 COOKIES_FILE = "/app/cookies.txt"
 
-# yt-dlp options
-# ios/android clients bypass YouTube's JS challenge — no Node.js runtime needed
-YDL_OPTIONS = {
-    'format': 'bestaudio/best',
-    'noplaylist': True,
-    'quiet': True,
-    'default_search': 'ytsearch',
-    'extract_flat': False,
-    'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['tv_embedded', 'web_embedded', 'web_creator'],
+def build_ydl_opts():
+    """Build yt-dlp options, with cookies if available."""
+    opts = {
+        # bestaudio can fail on some clients; fall back through multiple formats
+        'format': 'bestaudio/bestaudio*[ext=webm]/bestaudio*[ext=m4a]/best',
+        'noplaylist': True,
+        'quiet': True,
+        'default_search': 'ytsearch',
+        'extract_flat': False,
+        'extractor_args': {
+            'youtube': {
+                # web_embedded: supports cookies, no JS needed
+                # web_creator: supports cookies, no JS needed
+                # web: fallback (may warn about JS but still extracts)
+                'player_client': ['web_embedded', 'web_creator', 'web'],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         }
-    },
-    'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-}
+    if os.path.exists(COOKIES_FILE):
+        opts['cookiefile'] = COOKIES_FILE
+        print(f"[yt-dlp] Using cookies from {COOKIES_FILE}")
+    else:
+        print("[yt-dlp] No cookies file found — running without cookies")
+    return opts
 
 # FFmpeg options — reconnect flags must be in before_options
 FFMPEG_OPTIONS = {
@@ -116,11 +125,11 @@ async def play_next(ctx, error=None):
             voice_client.play(source, after=after_playing)
 
             duration = next_song.get('duration', 0)
-            if isinstance(duration, int):
+            if isinstance(duration, int) and duration > 0:
                 minutes, seconds = divmod(duration, 60)
                 duration_str = f"{minutes}:{seconds:02d}"
             else:
-                duration_str = str(duration)
+                duration_str = "Unknown"
 
             embed = discord.Embed(title="🎵 Now Playing", color=discord.Color.green())
             embed.add_field(name="Title", value=next_song['title'], inline=False)
@@ -131,7 +140,6 @@ async def play_next(ctx, error=None):
             await ctx.send("❌ Failed to load the audio stream. Skipping...")
             await play_next(ctx)
     else:
-        # Wait 5 minutes then auto-disconnect if idle
         await asyncio.sleep(300)
         if voice_client and voice_client.is_connected() and not voice_client.is_playing():
             await voice_client.disconnect()
@@ -143,7 +151,8 @@ async def play_next(ctx, error=None):
 async def get_audio_source(url):
     try:
         loop = asyncio.get_event_loop()
-        with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+        ydl_opts = build_ydl_opts()
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
             if 'entries' in info:
                 info = info['entries'][0]
@@ -157,7 +166,8 @@ async def get_audio_source(url):
 async def get_song_info(query, requester):
     try:
         loop = asyncio.get_event_loop()
-        with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+        ydl_opts = build_ydl_opts()
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(query, download=False))
             if 'entries' in info:
                 info = info['entries'][0]
@@ -265,7 +275,7 @@ async def show_queue(ctx):
 @bot.command(name='remove', aliases=['rm'])
 async def remove(ctx, index: int):
     queue = get_queue(ctx.guild.id)
-    removed = queue.remove(index - 1)  # user uses 1-based index
+    removed = queue.remove(index - 1)
     if removed:
         await ctx.send(f"🗑 Removed: **{removed['title']}**")
     else:
@@ -288,11 +298,11 @@ async def now_playing(ctx):
     queue = get_queue(ctx.guild.id)
     if queue.current:
         duration = queue.current.get('duration', 0)
-        if isinstance(duration, int):
+        if isinstance(duration, int) and duration > 0:
             minutes, seconds = divmod(duration, 60)
             duration_str = f"{minutes}:{seconds:02d}"
         else:
-            duration_str = str(duration)
+            duration_str = "Unknown"
 
         embed = discord.Embed(title="🎵 Now Playing", color=discord.Color.green())
         embed.add_field(name="Title", value=queue.current['title'], inline=False)
@@ -367,7 +377,7 @@ async def on_command_error(ctx, error):
 async def on_ready():
     print(f"✅ {bot.user} connected to Discord!")
     print(f"   Prefix: {PREFIX}")
-    print(f"   Cookies: {'found' if os.path.exists(COOKIES_FILE) else 'NOT FOUND — YouTube may block requests'}")
+    print(f"   Cookies: {'found ✅' if os.path.exists(COOKIES_FILE) else 'NOT FOUND ⚠️'}")
     await bot.change_presence(activity=discord.Game(name=f"{PREFIX}p <song>"))
 
 
