@@ -7,6 +7,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py .
+COPY main.py .   # <-- changed from bot.py to main.py
 
-CMD ["python", "bot.py"]
+CMD ["python", "main.py"]   # <-- changed from bot.py to main.py
