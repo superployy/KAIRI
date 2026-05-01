@@ -13,20 +13,30 @@ if not TOKEN:
 
 PREFIX = "K!"
 
-# yt-dlp options – no cookie file, just user-agent
+COOKIES_FILE = "/app/cookies.txt"
+
+# yt-dlp options
 YDL_OPTIONS = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'default_search': 'ytsearch',
     'extract_flat': False,
+    'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['web'],
+        }
+    },
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
 }
 
+# FFmpeg options — reconnect flags must be in before_options
 FFMPEG_OPTIONS = {
-    'options': '-vn -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn'
 }
 
 # ============================
@@ -61,6 +71,7 @@ class MusicQueue:
     def get_queue_list(self):
         return self.queue.copy()
 
+
 # ============================
 # BOT SETUP
 # ============================
@@ -72,10 +83,12 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 queues = {}
 
+
 def get_queue(guild_id):
     if guild_id not in queues:
         queues[guild_id] = MusicQueue()
     return queues[guild_id]
+
 
 # ============================
 # HELPER FUNCTIONS
@@ -100,26 +113,37 @@ async def play_next(ctx, error=None):
                 asyncio.run_coroutine_threadsafe(coro, bot.loop)
 
             voice_client.play(source, after=after_playing)
-            embed = discord.Embed(title="Now Playing", color=discord.Color.green())
+
+            duration = next_song.get('duration', 0)
+            if isinstance(duration, int):
+                minutes, seconds = divmod(duration, 60)
+                duration_str = f"{minutes}:{seconds:02d}"
+            else:
+                duration_str = str(duration)
+
+            embed = discord.Embed(title="🎵 Now Playing", color=discord.Color.green())
             embed.add_field(name="Title", value=next_song['title'], inline=False)
-            embed.add_field(name="Duration", value=next_song.get('duration', 'Unknown'), inline=True)
+            embed.add_field(name="Duration", value=duration_str, inline=True)
             embed.add_field(name="Requested by", value=next_song.get('requester', 'Unknown'), inline=True)
             await ctx.send(embed=embed)
         else:
             await ctx.send("❌ Failed to load the audio stream. Skipping...")
             await play_next(ctx)
     else:
-        await asyncio.sleep(300)  # 5 minutes idle disconnect
-        if voice_client and not voice_client.is_playing():
+        # Wait 5 minutes then auto-disconnect if idle
+        await asyncio.sleep(300)
+        if voice_client and voice_client.is_connected() and not voice_client.is_playing():
             await voice_client.disconnect()
             if guild_id in queues:
                 del queues[guild_id]
-            await ctx.send("👋 Queue empty, left voice channel due to inactivity.")
+            await ctx.send("👋 Queue empty. Left voice channel due to inactivity.")
+
 
 async def get_audio_source(url):
     try:
+        loop = asyncio.get_event_loop()
         with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
             if 'entries' in info:
                 info = info['entries'][0]
             audio_url = info['url']
@@ -128,30 +152,31 @@ async def get_audio_source(url):
         print(f"Error extracting audio: {e}")
         return None
 
+
 async def get_song_info(query, requester):
-    with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
-        try:
-            info = ydl.extract_info(query, download=False)
+    try:
+        loop = asyncio.get_event_loop()
+        with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = await loop.run_in_executor(None, lambda: ydl.extract_info(query, download=False))
             if 'entries' in info:
                 info = info['entries'][0]
-        except Exception:
-            return None
+    except Exception as e:
+        print(f"Error fetching song info: {e}")
+        return None
+
     return {
         'title': info.get('title', 'Unknown'),
-        'duration': info.get('duration', 'Unknown'),
+        'duration': info.get('duration', 0),
         'url': info.get('webpage_url', info.get('url')),
         'requester': requester
     }
+
 
 # ============================
 # COMMANDS
 # ============================
 @bot.command(name='p', aliases=['play'])
 async def play(ctx, *, query):
-    if not query:
-        await ctx.send("❌ Please provide a song name or URL.")
-        return
-
     if not ctx.author.voice:
         await ctx.send("❌ You are not connected to a voice channel.")
         return
@@ -160,12 +185,13 @@ async def play(ctx, *, query):
     voice_client = ctx.voice_client
 
     if not voice_client:
-        await voice_channel.connect()
-        voice_client = ctx.voice_client
+        voice_client = await voice_channel.connect()
     elif voice_client.channel != voice_channel:
         await voice_client.move_to(voice_channel)
 
-    song = await get_song_info(query, ctx.author.display_name)
+    async with ctx.typing():
+        song = await get_song_info(query, ctx.author.display_name)
+
     if not song:
         await ctx.send("❌ Could not find that song. Please try another.")
         return
@@ -173,10 +199,11 @@ async def play(ctx, *, query):
     queue = get_queue(ctx.guild.id)
     queue.add(song)
 
-    if not voice_client.is_playing():
+    if not voice_client.is_playing() and not voice_client.is_paused():
         await play_next(ctx)
     else:
         await ctx.send(f"✅ Added to queue: **{song['title']}**")
+
 
 @bot.command(name='pause')
 async def pause(ctx):
@@ -187,23 +214,26 @@ async def pause(ctx):
     else:
         await ctx.send("❌ Nothing is playing right now.")
 
+
 @bot.command(name='resume')
 async def resume(ctx):
     voice_client = ctx.voice_client
     if voice_client and voice_client.is_paused():
         voice_client.resume()
-        await ctx.send("▶ Resumed.")
+        await ctx.send("▶️ Resumed.")
     else:
         await ctx.send("❌ The player is not paused or nothing is playing.")
+
 
 @bot.command(name='skip')
 async def skip(ctx):
     voice_client = ctx.voice_client
-    if voice_client and voice_client.is_playing():
+    if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
         voice_client.stop()
         await ctx.send("⏭ Skipped current song.")
     else:
         await ctx.send("❌ No song is currently playing.")
+
 
 @bot.command(name='queue', aliases=['q'])
 async def show_queue(ctx):
@@ -214,54 +244,76 @@ async def show_queue(ctx):
         await ctx.send("📭 The queue is empty.")
         return
 
-    embed = discord.Embed(title="Music Queue", color=discord.Color.blue())
+    embed = discord.Embed(title="🎶 Music Queue", color=discord.Color.blue())
     description = ""
 
     if queue.current:
         description += f"**Now Playing:** {queue.current['title']} (requested by {queue.current['requester']})\n\n"
 
     if queue_list:
-        description += "**Up next:**\n"
+        description += "**Up Next:**\n"
         for i, song in enumerate(queue_list[:10], 1):
-            description += f"{i}. **{song['title']}** (requested by {song['requester']})\n"
+            description += f"`{i}.` **{song['title']}** — {song['requester']}\n"
         if len(queue_list) > 10:
-            description += f"... and {len(queue_list) - 10} more."
+            description += f"\n... and {len(queue_list) - 10} more."
 
     embed.description = description
     await ctx.send(embed=embed)
+
+
+@bot.command(name='remove', aliases=['rm'])
+async def remove(ctx, index: int):
+    queue = get_queue(ctx.guild.id)
+    removed = queue.remove(index - 1)  # user uses 1-based index
+    if removed:
+        await ctx.send(f"🗑 Removed: **{removed['title']}**")
+    else:
+        await ctx.send("❌ Invalid queue position.")
+
 
 @bot.command(name='stop')
 async def stop(ctx):
     voice_client = ctx.voice_client
     if voice_client:
-        voice_client.stop()
         get_queue(ctx.guild.id).clear()
+        voice_client.stop()
         await ctx.send("⏹ Stopped playback and cleared the queue.")
     else:
         await ctx.send("❌ I'm not connected to a voice channel.")
+
 
 @bot.command(name='now', aliases=['np'])
 async def now_playing(ctx):
     queue = get_queue(ctx.guild.id)
     if queue.current:
-        embed = discord.Embed(title="Now Playing", color=discord.Color.green())
+        duration = queue.current.get('duration', 0)
+        if isinstance(duration, int):
+            minutes, seconds = divmod(duration, 60)
+            duration_str = f"{minutes}:{seconds:02d}"
+        else:
+            duration_str = str(duration)
+
+        embed = discord.Embed(title="🎵 Now Playing", color=discord.Color.green())
         embed.add_field(name="Title", value=queue.current['title'], inline=False)
-        embed.add_field(name="Duration", value=queue.current.get('duration', 'Unknown'), inline=True)
+        embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Requested by", value=queue.current.get('requester', 'Unknown'), inline=True)
         await ctx.send(embed=embed)
     else:
         await ctx.send("❌ No song is currently playing.")
 
-@bot.command(name='leave', aliases=['disconnect'])
+
+@bot.command(name='leave', aliases=['disconnect', 'dc'])
 async def leave(ctx):
     voice_client = ctx.voice_client
     if voice_client:
+        get_queue(ctx.guild.id).clear()
         await voice_client.disconnect()
         if ctx.guild.id in queues:
             del queues[ctx.guild.id]
         await ctx.send("👋 Disconnected from voice channel.")
     else:
         await ctx.send("❌ I'm not in a voice channel.")
+
 
 @bot.command(name='join')
 async def join(ctx):
@@ -271,6 +323,34 @@ async def join(ctx):
     else:
         await ctx.send("❌ You are not in a voice channel.")
 
+
+@bot.command(name='help', aliases=['h'])
+async def help_command(ctx):
+    embed = discord.Embed(
+        title="🎵 Kbot Music Commands",
+        description=f"Prefix: `{PREFIX}`",
+        color=discord.Color.purple()
+    )
+    commands_list = [
+        ("`K!p <song>`", "Play a song or add to queue"),
+        ("`K!pause`", "Pause playback"),
+        ("`K!resume`", "Resume playback"),
+        ("`K!skip`", "Skip the current song"),
+        ("`K!stop`", "Stop and clear the queue"),
+        ("`K!queue` / `K!q`", "Show the current queue"),
+        ("`K!now` / `K!np`", "Show the current song"),
+        ("`K!remove <#>`", "Remove a song from the queue"),
+        ("`K!join`", "Join your voice channel"),
+        ("`K!leave`", "Leave the voice channel"),
+    ]
+    for name, value in commands_list:
+        embed.add_field(name=name, value=value, inline=False)
+    await ctx.send(embed=embed)
+
+
+# ============================
+# EVENTS
+# ============================
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
@@ -278,14 +358,17 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ Missing argument. Usage: `{ctx.prefix}{ctx.command.name} {ctx.command.signature}`")
     else:
-        await ctx.send(f"⚠ An error occurred: {str(error)}")
-        print(error)
+        await ctx.send(f"⚠️ An error occurred: {str(error)}")
+        print(f"Error: {error}")
+
 
 @bot.event
 async def on_ready():
-    print(f"{bot.user} has connected to Discord!")
-    print(f"Prefix: {PREFIX}")
+    print(f"✅ {bot.user} connected to Discord!")
+    print(f"   Prefix: {PREFIX}")
+    print(f"   Cookies: {'found' if os.path.exists(COOKIES_FILE) else 'NOT FOUND — YouTube may block requests'}")
     await bot.change_presence(activity=discord.Game(name=f"{PREFIX}p <song>"))
+
 
 # ============================
 # RUN BOT
