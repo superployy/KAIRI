@@ -1,6 +1,6 @@
-FROM python:3.11-slim
+FROM python:3.11-bullseye
 
-RUN apt update && apt install -y ffmpeg libffi-dev openssl && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
